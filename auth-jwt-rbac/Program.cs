@@ -1,4 +1,6 @@
 using auth_jwt_rbac.Database;
+using auth_jwt_rbac.Interfaces;
+using auth_jwt_rbac.Services;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
@@ -11,6 +13,8 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 builder.Services.AddDbContext<AppDbContext>(u => u.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 var app = builder.Build();
 

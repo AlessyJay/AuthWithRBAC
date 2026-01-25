@@ -1,68 +1,38 @@
 ﻿using auth_jwt_rbac.Dtos;
 using auth_jwt_rbac.Entities;
+using auth_jwt_rbac.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace auth_jwt_rbac.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AuthController(IConfiguration configuration) : ControllerBase
+    public class AuthController(IAuthService authService) : ControllerBase
     {
-        public static User user = new();
-
         [HttpPost("register")]
-        public ActionResult<User> Register([FromBody] UserDto req)
+        public async Task<ActionResult<User>> Register([FromBody] UserDto req)
         {
-            var hashedPassword = new PasswordHasher<User>().HashPassword(user, req.PasswordHash);
+            var user = await authService.RegisterAsync(req);
 
-            user.Username = req.Username;
-            user.PasswordHash = hashedPassword;
+            if (user is null) return BadRequest("Username already exists!");
 
             return Ok(user);
         }
 
         [HttpPost("login")]
-        public ActionResult<string> Login([FromBody] UserDto req)
+        public async Task<ActionResult<string>> Login([FromBody] UserDto req)
         {
-            if (user.Username != req.Username)
-            {
-                return BadRequest("User not found");
-            }
+            var token = await authService.LoginAsync(req);
 
-            if (new PasswordHasher<User>().VerifyHashedPassword(user, user.PasswordHash, req.PasswordHash) == PasswordVerificationResult.Failed)
-            {
-                return BadRequest("Wrong username, password or the account doesn't exist!");
-            }
+            if (token is null) return BadRequest("Invalid username or password!");
 
-            string token = CreateToken(user);
-
-            return token;
-        }
-
-        private string CreateToken(User user)
-        {
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.Username)
-            };
-
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration.GetValue<string>("AppSettings:Token")!));
-
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512);
-
-            var tokenDescriptor = new JwtSecurityToken(issuer: configuration.GetValue<string>("AppSettings:Issuer"),
-                audience: configuration.GetValue<string>("AppSettings:Audience"),
-                claims: claims,
-                expires: DateTime.UtcNow.AddDays(7),
-                signingCredentials: creds);
-
-            return new JwtSecurityTokenHandler().WriteToken(tokenDescriptor);
+            return Ok(token);
         }
     }
 }
