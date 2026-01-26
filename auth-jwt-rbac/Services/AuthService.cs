@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace auth_jwt_rbac.Services
@@ -19,7 +20,8 @@ namespace auth_jwt_rbac.Services
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.Name, req.Username),
-                new Claim(ClaimTypes.NameIdentifier, req.Id.ToString())
+                new Claim(ClaimTypes.NameIdentifier, req.Id.ToString()),
+                new Claim(ClaimTypes.Role, req.Roles.ToString())
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config.GetValue<string>("AppSettings:Token")!));
@@ -27,14 +29,60 @@ namespace auth_jwt_rbac.Services
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512);
 
             var tokenDescriptor = new JwtSecurityToken(
-                issuer: config.GetValue<string>("AppSettings:Issuer"),
-                audience: config.GetValue<string>("AppSetting:Audience"),
-                claims: claims, expires: DateTime.UtcNow.AddDays(7));
+                issuer: config.GetValue<string>("AppSettings:Issuer")!,
+                audience: config.GetValue<string>("AppSettings:Audience")!,
+                signingCredentials: creds,
+                claims: claims,
+                expires: DateTime.UtcNow.AddDays(7));
 
             return new JwtSecurityTokenHandler().WriteToken(tokenDescriptor);
         }
 
-        public async Task<string?> LoginAsync(UserDto req)
+        private string GenerateRefreshToken()
+        {
+            var random = new Byte[32];
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(random);
+
+            return Convert.ToBase64String(random);
+        }
+
+        private async Task<string> GenerateAndSaveRefreshTokenAsync(User req)
+        {
+            var refreshToken = GenerateRefreshToken();
+            req.RefreshToken = refreshToken;
+            req.RefreshExpiresAt = DateTimeOffset.UtcNow.AddDays(30);
+
+            await context.SaveChangesAsync();
+
+            return refreshToken;
+        }
+
+        private async Task<User> ValidateRefreshTokenAsync(Guid userId, string refreshToken)
+        {
+            var user = await context.users.FindAsync(userId);
+
+            if (user is null || user.RefreshToken != refreshToken || user.RefreshExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                return null!;
+            }
+
+            return user;
+        }
+
+        public async Task<TokenResponseDto?> RefreshTokensAsync(RefreshTokenRequestDto req)
+        {
+            var user = await ValidateRefreshTokenAsync(req.UserID, req.RefreshToken);
+
+            if (user is null)
+            {
+                return null!;
+            }
+
+            return await CreateTokenResponse(user);
+        }
+
+        public async Task<TokenResponseDto?> LoginAsync(UserDto req)
         {
             try
             {
@@ -44,17 +92,26 @@ namespace auth_jwt_rbac.Services
 
                 if (await context.users.AnyAsync(u => u.Username != req.Username || new PasswordHasher<User>().VerifyHashedPassword(user, user.PasswordHash, req.PasswordHash) == PasswordVerificationResult.Failed))
                 {
-                    return "Incorrect username, password or the account doesn't exist!";
+                    return null;
                 }
 
                 string token = CreateToken(user);
 
-                return token;
+                return await CreateTokenResponse(user);
             }
             catch (Exception ex)
             {
                 throw new Exception();
             }
+        }
+
+        private async Task<TokenResponseDto> CreateTokenResponse(User user)
+        {
+            return new TokenResponseDto
+            {
+                AccessToken = CreateToken(user),
+                RefreshToken = await GenerateAndSaveRefreshTokenAsync(user),
+            };
         }
 
         public async Task<User?> RegisterAsync(UserDto req)
