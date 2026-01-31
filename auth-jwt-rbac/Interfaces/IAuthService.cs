@@ -6,6 +6,7 @@ namespace auth_jwt_rbac.Interfaces
     public interface IAuthService
     {
         Task<User?> RegisterAsync(UserDto req);
-        Task<string?> LoginAsync(UserDto req);
+        Task<TokenResponseDto?> LoginAsync(UserDto req);
+        Task<TokenResponseDto?> RefreshTokensAsync(RefreshTokenRequestDto req);
     }
 }
