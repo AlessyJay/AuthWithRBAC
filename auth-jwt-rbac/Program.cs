@@ -13,7 +13,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
-builder.Services.AddDbContext<AppDbContext>(u => u.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddDbContext<AppDbContext>(u => u.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection") ?? 
+    $"Host={Environment.GetEnvironmentVariable("PGHOST")};" +
+        $"Port={Environment.GetEnvironmentVariable("PGPORT")};" +
+        $"Database={Environment.GetEnvironmentVariable("PGDATABASE")};" +
+        $"Username={Environment.GetEnvironmentVariable("PGUSER")};" +
+        $"Password={Environment.GetEnvironmentVariable("PGPASSWORD")};" +
+        "SSL Mode=Require;Trust Server Certificate=true;"));
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 
